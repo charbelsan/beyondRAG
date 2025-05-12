@@ -421,15 +421,10 @@ def build_graph():
     graph.add_edge("search_node", "read_node")
     graph.add_edge("read_node", "reflect_node")
     
-    # Add conditional edges from reflect directly to synthesize
-    graph.add_conditional_edges(
-        "reflect_node",
-        has_sufficient_info,
-        {
-            True: "synthesize_node",
-            False: "search_node"  # Go back to search if not enough info
-        }
-    )
+    # Create a simple linear flow to avoid recursion issues
+    # After 8 iterations, has_sufficient_info will return True and go to synthesize
+    graph.add_edge("reflect_node", "synthesize_node", has_sufficient_info)
+    graph.add_edge("reflect_node", "search_node")
     
     # Set finish point
     graph.set_finish_point("synthesize_node")
