@@ -1,0 +1,4 @@
+__pycache__/
+indexing/
+pipelines/build/
+*.pyc

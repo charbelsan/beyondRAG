@@ -1,0 +1,35 @@
+llm:
+  mode: local                   # local | remote
+  model_id: qwen2.5:32b-instruct
+  base_url: http://localhost:11434/v1
+  api: None
+agent:
+  mode: reasoning                    # code | reasoning | multi
+  system_prompt: |
+    You are an expert research assistant for a private corpus.
+    Loop: PLAN → SEARCH → READ → REFLECT → (optional) REFORMULATE → SYNTHESIZE.
+# reformulation:
+#   enabled: true
+#   model: mistral
+#   temperature: 0.3
+memory:
+  max_snippets: 40
+  track_reflections: true
+  reflection_interval: 5
+  reflection_timeout: 120
+slice:
+  default_chars: 750
+  default_mode: auto            # auto | page | paragraph | section
+
+chunking:
+  mode: semantic
+  semantic:
+    embeddings_model: intfloat/multilingual-e5-large-instruct
+    breakpoint_threshold_type: percentile   # percentile | standard_deviation | interquartile | gradient
+    breakpoint_threshold_amount: 0.6        # float in [0,1] or std-dev multiplier
+
+limits:
+  max_tool_calls: 60
+  max_tokens_out: 4096
+export:
+  pdf: true

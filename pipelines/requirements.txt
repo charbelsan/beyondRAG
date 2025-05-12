@@ -1,0 +1,54 @@
+# ───────── numerical / base stack ────────────────────────────
+numpy==1.26.4                  # 1.27+ will drop py3.8; keep <=1.26 for FAISS wheels
+torch==2.2.1+cu124             # CUDA 12.4 build; comment if using CPU-only
+# torch==2.2.1                 # ← uncomment for pure‑CPU images
+
+# ───────── embedding / retrieval ─────────────────────────────
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+rank-bm25==0.2.2
+whoosh==2.7.4                  # latest; pure‑python
+
+# ───────── document loaders / parsing ────────────────────────
+pymupdf4llm==0.1.3
+pymupdf==1.23.7
+python-docx==0.8.11
+
+# ───────── transformers & optimisation ───────────────────────
+transformers==4.39.3
+optimum==1.17.0
+accelerate==0.27.2
+bitsandbytes==0.42.0
+safetensors==0.4.3
+
+# ───────── graph / utilities ─────────────────────────────────
+networkx==3.1
+watchdog==3.0.0
+xxhash==3.5.0                  # pulled in by langgraph‑prebuilt
+python-dotenv==1.0.1
+
+# ───────── core agent / LLM orchestration stack ─────────────
+smolagents~=0.3.1              # CodeAgent stable API
+langgraph==0.2.76              # pinned to satisfy gpt‑researcher 0.8.5
+langgraph-prebuilt==0.1.2
+gpt-researcher==0.8.5
+
+#   split‑out langchain packages (remove deprecation warnings)
+langchain-community==0.0.29
+langchain-openai==0.0.8
+langchain==0.1.16              # keep a low core version for compatibility
+langchain-experimental==0.0.46
+langchain-huggingface==0.0.8
+
+openai>=1.14.0                 # needed if you call the OpenAI API directly
+
+# ───────── optional travel‑time tool dependency ─────────────
+googlemaps==4.10               # only if `get_travel_duration` is kept
+
+# ───────── AutoGen stack (version that plays with LangChain 0.1) ──────────
+autogen-agentchat==0.2.0
+autogen-ext[magnetic-one]==0.2.0
+
+# ───────── install from source (pinned commit) ───────────────
+# if you prefer the GitHub head version, keep the line below; otherwise comment it:
+# git+https://github.com/assafelovic/gpt-researcher.git@main

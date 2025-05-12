@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  deepresearch:
+    build: .
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - PORT=9080
+      - PIPELINES_DIR=/app/pipelines
+      - PIPELINES_REQUIREMENTS_PATH=/app/pipelines/requirements.txt
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./docs:/app/docs
+      - ./indexing:/app/indexing
+      - ./pipelines:/app/pipelines
+    network_mode: host
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
