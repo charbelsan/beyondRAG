@@ -120,26 +120,20 @@ def _auto_annotate(fn: Callable) -> Callable:
     return fn
 
 # Create a list of all tools with proper annotations
-AGENT_TOOLS = [
-    tool_decorator(_auto_annotate(func))   # decorator → Tool instance
-    for func in RAW_TOOLS.values()
-]
+AGENT_TOOLS = []
+for func_name, func in RAW_TOOLS.items():
+    try:
+        # Check if the function is already a tool
+        if hasattr(func, '_smolagents_tool'):
+            AGENT_TOOLS.append(func)
+        else:
+            # Apply tool decorator to regular functions
+            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
+    except Exception as e:
+        logging.error(f"Error adding tool {func_name}: {e}")
 
-# Ensure the research tools are properly included
-# This is a safety check in case the tool decorator wasn't applied in the research_tools.py file
-research_tool_names = [
-    "plan_research",
-    "hybrid_search_with_content",
-    "analyze_content",
-    "reflect_on_research",
-    "navigate_document_graph",
-    "synthesize_answer"
-]
-
-# Verify all research tools are included
-for tool_name in research_tool_names:
-    if tool_name not in RAW_TOOLS:
-        logging.warning(f"Research tool {tool_name} not found in RAW_TOOLS")
+# Log the tools that were successfully added
+logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
 
 # ---------------------------------------------------------------------------
 # Prompt template with enhanced research instructions
