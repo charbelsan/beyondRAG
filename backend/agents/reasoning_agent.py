@@ -49,6 +49,7 @@ class ResearchState(BaseModel):
     visited_docs: List[str] = Field(default_factory=list)
     current_focus: Optional[str] = None
     current_query: str = ""  # Will be updated during reflection
+    iterations: int = 0  # Counter to prevent infinite loops
     answer: Optional[str] = None
 
 # ── helper to normalise hit shapes ------------------------------------------
@@ -382,9 +383,38 @@ def build_graph():
     graph.add_edge("search_node", "read_node")
     graph.add_edge("read_node", "reflect_node")
     
-    # Add conditional edges from reflect
+    # Add a counter to the state to prevent infinite loops
+    def increment_iteration_counter(state: ResearchState) -> dict:
+        """Increment the iteration counter to prevent infinite loops."""
+        return {"iterations": state.iterations + 1}
+    
+    graph.add_node("increment_counter", increment_iteration_counter)
+    
+    # Add a node to check if we've reached the maximum iterations
+    def check_iterations(state: ResearchState) -> bool:
+        """Check if we've reached the maximum number of iterations."""
+        return state.iterations >= 10  # Maximum 10 iterations
+    
+    # Add conditional edges from reflect to check iterations
     graph.add_conditional_edges(
         "reflect_node",
+        check_iterations,  # First check if we've reached max iterations
+        {
+            True: "synthesize_node",  # If max iterations reached, go to synthesize
+            False: "navigation_check_node"  # Otherwise, check if we should navigate
+        }
+    )
+    
+    # Add a node to check if we should navigate
+    def navigation_check(state: ResearchState) -> dict:
+        """Check if we should navigate to related documents."""
+        return {}
+        
+    graph.add_node("navigation_check_node", navigation_check)
+    
+    # Add conditional edges from navigation check
+    graph.add_conditional_edges(
+        "navigation_check_node",
         should_navigate,
         {
             True: "navigate_node",
@@ -405,9 +435,12 @@ def build_graph():
         has_sufficient_info,
         {
             True: "synthesize_node",
-            False: "search_node"  # Default back to search if no clear path
+            False: "increment_counter"  # Go to counter before searching again
         }
     )
+    
+    # Add edge from counter to search
+    graph.add_edge("increment_counter", "search_node")
     
     graph.add_edge("navigate_node", "read_node")
     
