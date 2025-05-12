@@ -150,29 +150,39 @@ for tool_name in basic_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
+            # Use the function directly without re-decorating it
+            AGENT_TOOLS.append(_auto_annotate(func))
             logging.info(f"Added basic tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
 
-# Add research tools
-research_tools = [
-    "plan_research",
-    "hybrid_search_with_content",
-    "analyze_content",
-    "reflect_on_research",
-    "navigate_document_graph",
-    "synthesize_answer"
+# Add research tools - these are already decorated with @tool
+# We need to import them directly rather than trying to re-decorate them
+from backend.tools.research_tools import (
+    plan_research,
+    hybrid_search_with_content,
+    analyze_content,
+    reflect_on_research,
+    navigate_document_graph,
+    synthesize_answer
+)
+
+# Add the research tools directly
+research_tools_list = [
+    plan_research,
+    hybrid_search_with_content,
+    analyze_content,
+    reflect_on_research,
+    navigate_document_graph,
+    synthesize_answer
 ]
 
-for tool_name in research_tools:
-    if tool_name in RAW_TOOLS:
-        func = RAW_TOOLS[tool_name]
-        try:
-            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
-            logging.info(f"Added research tool: {tool_name}")
-        except Exception as e:
-            logging.error(f"Error adding research tool {tool_name}: {e}")
+for func in research_tools_list:
+    try:
+        AGENT_TOOLS.append(_auto_annotate(func))
+        logging.info(f"Added research tool: {func.__name__}")
+    except Exception as e:
+        logging.error(f"Error adding research tool {getattr(func, '__name__', 'unknown')}: {e}")
 
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
@@ -206,7 +216,20 @@ PROMPTS = PromptTemplates(
     system_prompt=CONFIG.get(
         "agent.system_prompt",
         RESEARCH_SYSTEM_PROMPT,
-    )
+    ),
+    managed_agent="""
+    You are a research assistant with access to tools for searching and analyzing documents.
+    Follow the research loop: PLAN → SEARCH → READ → REFLECT → SYNTHESIZE.
+    Use the available tools to find information and answer the user's question.
+    """,
+    final_answer="""
+    Based on your research, provide a comprehensive answer to the user's question.
+    Include citations to the sources you used.
+    """,
+    planning="""
+    Create a plan to answer the user's question using the available tools.
+    Break down the task into steps and explain your approach.
+    """
 )
 
 # ---------------------------------------------------------------------------
