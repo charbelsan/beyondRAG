@@ -17,6 +17,10 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("code_agent")
+
 from smolagents import CodeAgent, OpenAIServerModel, PromptTemplates
 from smolagents import tool as tool_decorator 
   
@@ -199,16 +203,43 @@ def answer(q: str) -> str:
     Reformulate query, reset shared memory, run CodeAgent once, stitch in
     memory summary & sources block. Uses RAW_TOOLS for execution.
     """
-    q = reformulate(q)
+    logger.info(f"Starting code agent research for query: {q[:100]}...")
+    
+    reformulated_q = reformulate(q)
+    if reformulated_q != q:
+        logger.info(f"Query reformulated to: {reformulated_q[:100]}...")
+    else:
+        reformulated_q = q
+    
     MEM.reset()
-    MEM.add_query(q)
+    MEM.add_query(reformulated_q)
+    
+    # Log available tools
+    logger.info(f"Available tools: {', '.join(RAW_TOOLS.keys())}")
+    logger.info(f"Agent configured with {len(AGENT_TOOLS)} tools")
 
     # --- Run Agent ---
     try:
+        # Add a tool usage tracker
+        original_run = AG.run
+        
+        def run_with_logging(query):
+            logger.info(f"Starting agent execution with query: {query[:100]}...")
+            start_time = time.time()
+            result = original_run(query)
+            duration = time.time() - start_time
+            logger.info(f"Agent execution completed in {duration:.2f} seconds")
+            return result
+            
+        AG.run = run_with_logging
+        
         # Assuming AG.run handles the loop internally based on max_steps
-        response = AG.run(q) # Pass only the initial query
+        response = AG.run(reformulated_q) # Pass only the initial query
+        
+        logger.info(f"Agent completed with {len(MEM.snips)} snippets and {len(MEM.reflections)} reflections")
+        
     except Exception as agent_err:
-        logging.error(f"Agent run failed: {agent_err}", exc_info=True)
+        logger.error(f"Agent run failed: {agent_err}", exc_info=True)
         # Consider returning a more user-friendly error or re-raising
         return f"Agent execution failed: {agent_err}"
 
@@ -216,20 +247,24 @@ def answer(q: str) -> str:
     # Check if the response is just the final answer text or includes the marker
     if response.startswith("FINAL_ANSWER:"):
          final_answer_text = response.split("FINAL_ANSWER:", 1)[1].strip()
+         logger.info("Found FINAL_ANSWER marker in response")
     else:
          # Assume the agent directly returned the answer text if no marker
          final_answer_text = response
+         logger.info("No FINAL_ANSWER marker found, using full response")
 
     # Append memory summary if needed
     if MEM.reflections or len(MEM.queries) > 1:
+        logger.info(f"Adding memory summary with {len(MEM.reflections)} reflections and {len(MEM.queries)} queries")
         final_answer_text += "\n\n" + MEM.summary()
 
     # Append sources (MEM should have been populated during AG.run's internal tool calls)
     # Ensure publish function handles potential errors gracefully
     try:
         sources_text = publish(MEM.snips)
+        logger.info(f"Added {len(MEM.snips)} sources to response")
     except Exception as pub_err:
-        logging.error(f"Publishing sources failed: {pub_err}", exc_info=True)
+        logger.error(f"Publishing sources failed: {pub_err}", exc_info=True)
         sources_text = "Error generating sources."
 
     return final_answer_text + "\n\n### Sources\n" + sources_text

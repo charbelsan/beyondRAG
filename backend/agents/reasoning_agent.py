@@ -12,10 +12,15 @@ from __future__ import annotations
 import os
 import json
 import pathlib
+import logging
 from typing import List, Optional, Dict, Any, Callable
 
 from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("reasoning_agent")
 
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
@@ -154,8 +159,12 @@ Your answer should be thorough yet concise, focusing on providing maximum value 
 # ── node: plan --------------------------------------------------------------
 def plan_node(state: ResearchState) -> dict:
     """Develop a research plan for answering the question."""
+    logger.info(f"PLAN: Creating research plan for question: {state.question[:50]}...")
+    
     llm_input = _PLAN_TEMPLATE.format(question=state.question)
     plan = LLM.invoke(llm_input).content.strip()
+    
+    logger.info(f"PLAN: Created plan with {len(plan.split())} words")
     
     # Initialize current_query with the original question
     return {
@@ -167,13 +176,19 @@ def plan_node(state: ResearchState) -> dict:
 def search_node(state: ResearchState) -> dict:
     """Search for relevant documents using the current query."""
     query = state.current_query or state.question
+    logger.info(f"SEARCH: Searching with query: {query[:50]}...")
     
     bm25_ids = _extract_ids(bm25_search(query, k=5))
+    logger.info(f"SEARCH: BM25 returned {len(bm25_ids)} results")
+    
     vector_ids = _extract_ids(vector_search(query, k=5))
+    logger.info(f"SEARCH: Vector search returned {len(vector_ids)} results")
+    
     top_ids = list(dict.fromkeys(bm25_ids + vector_ids))[:5]
     
     # Filter out already visited documents
     new_ids = [did for did in top_ids if did not in state.visited_docs]
+    logger.info(f"SEARCH: Found {len(new_ids)} new documents to explore")
     
     snippets = []
     meta_path = CONFIG.get_path("indexing.meta")
@@ -188,12 +203,16 @@ def search_node(state: ResearchState) -> dict:
             MEM.track(txt, did, mode="auto")
             state.visited_docs.append(did)
     
+    logger.info(f"SEARCH: Retrieved {len(snippets)} text snippets")
     return {"context": state.context + snippets}
 
 # ── node: read --------------------------------------------------------------
 def read_node(state: ResearchState) -> dict:
     """Analyze retrieved content and extract key information."""
+    logger.info(f"READ: Analyzing {len(state.context)} context items")
+    
     if not state.context:
+        logger.info("READ: No content available to analyze")
         return {"current_focus": "No content available to analyze."}
     
     # Use only the most recent context items for analysis
@@ -205,11 +224,15 @@ def read_node(state: ResearchState) -> dict:
         context=context_text
     )
     analysis = LLM.invoke(llm_input).content.strip()
+    
+    logger.info(f"READ: Analysis complete with {len(analysis.split())} words")
     return {"current_focus": analysis}
 
 # ── node: reflect -----------------------------------------------------------
 def reflect_node(state: ResearchState) -> dict:
     """Reflect on current knowledge and identify gaps, implicitly reformulating if needed."""
+    logger.info(f"REFLECT: Iteration {state.iterations + 1}, reflecting on current knowledge")
+    
     # Prepare reflections text
     reflections_text = "\n".join(state.reflections) if state.reflections else "No previous reflections."
     
@@ -235,10 +258,13 @@ def reflect_node(state: ResearchState) -> dict:
         if len(query_parts) > 1:
             new_query = query_parts[1].strip().split("\n")[0].strip()
             MEM.add_query(new_query, "implicit_reformulation")
+            logger.info(f"REFLECT: Query reformulated to: {new_query[:50]}...")
     
+    logger.info(f"REFLECT: Added reflection with {len(reflection.split())} words")
     return {
         "reflections": state.reflections + [reflection],
-        "current_query": new_query
+        "current_query": new_query,
+        "iterations": state.iterations + 1  # Increment iteration counter
     }
 
 # ── node: navigate ----------------------------------------------------------
@@ -293,6 +319,9 @@ def navigate_node(state: ResearchState) -> dict:
 # ── node: synthesize (enhanced version of synthesise) -----------------------
 def synthesize_node(state: ResearchState) -> dict:
     """Synthesize final answer from all gathered information."""
+    logger.info(f"SYNTHESIZE: Creating final answer after {state.iterations} iterations")
+    logger.info(f"SYNTHESIZE: Using {len(state.context)} context items and {len(state.reflections)} reflections")
+    
     ctx = "\n\n".join(state.context) or "[no useful context]"
     reflections = "\n".join(state.reflections) or "[no reflections]"
     
@@ -304,6 +333,7 @@ def synthesize_node(state: ResearchState) -> dict:
     )
     
     answer = LLM.invoke(llm_input).content.strip()
+    logger.info(f"SYNTHESIZE: Generated answer with {len(answer.split())} words")
     return {"answer": answer}
 
 # ── edge conditions --------------------------------------------------------
@@ -411,22 +441,30 @@ def answer(question: str) -> str:
     Returns:
         A comprehensive answer with research process details
     """
+    logger.info(f"Starting research for question: {question[:100]}...")
     MEM.reset()
     MEM.add_query(question)
     
-    final_state = compiled_graph.invoke({"question": question})
-    result = final_state.get("answer") or "I don't know."
-    
-    # Add memory summary with reflections and query evolution
-    if MEM.reflections or len(MEM.queries) > 1:
-        result += "\n\n" + MEM.summary()
-    
-    # Add sources
-    from backend.agents.shared.publish import publish
     try:
-        sources_text = publish(MEM.snips)
-        result += "\n\n### Sources\n" + sources_text
+        final_state = compiled_graph.invoke({"question": question})
+        result = final_state.get("answer") or "I don't know."
+        
+        logger.info(f"Research complete with {len(MEM.snips)} snippets and {len(MEM.reflections)} reflections")
+        
+        # Add memory summary with reflections and query evolution
+        if MEM.reflections or len(MEM.queries) > 1:
+            result += "\n\n" + MEM.summary()
+        
+        # Add sources
+        from backend.agents.shared.publish import publish
+        try:
+            sources_text = publish(MEM.snips)
+            result += "\n\n### Sources\n" + sources_text
+        except Exception as e:
+            logger.error(f"Error generating sources: {e}")
+            result += f"\n\n### Sources\nError generating sources: {e}"
+        
+        return result
     except Exception as e:
-        result += f"\n\n### Sources\nError generating sources: {e}"
-    
-    return result
+        logger.error(f"Error in research process: {e}", exc_info=True)
+        return f"Error during research: {str(e)}"
