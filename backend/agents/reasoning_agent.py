@@ -13,6 +13,7 @@ import os
 import json
 import pathlib
 import logging
+import re
 from typing import List, Optional, Dict, Any, Callable
 
 from langgraph.graph import StateGraph
@@ -45,6 +46,11 @@ LLM = ChatOpenAI(
     temperature=0.2,
 )
 
+# ── regex patterns for parsing control lines ---------------------------------
+TAG_NEED_MORE = re.compile(r"need[- ]more[- ]search:\s*(yes|no)", re.I)
+TAG_COVERAGE  = re.compile(r"coverage:\s*(high|partial|low)", re.I)
+TAG_NEWQUERY  = re.compile(r"new[- ]query:\s*(.+)", re.I)
+
 # ── enhanced state schema ---------------------------------------------------
 class ResearchState(BaseModel):
     question: str
@@ -55,6 +61,9 @@ class ResearchState(BaseModel):
     current_focus: Optional[str] = None
     current_query: str = ""  # Will be updated during reflection
     iterations: int = 0  # Counter to prevent infinite loops
+    coverage: str = "partial"  # high/partial/low from LLM assessment
+    need_more: bool = True  # Flag from LLM to continue or stop
+    previous_queries: List[str] = Field(default_factory=list)  # Track queries to avoid duplicates
     answer: Optional[str] = None
 
 # ── helper to normalise hit shapes ------------------------------------------
@@ -101,6 +110,9 @@ Extract and organize the key information from this content:
 4. What is the significance of this information?
 
 Provide a structured analysis that captures the essence of this content.
+
+Finally, on one line only, state:
+Coverage: {high / partial / low}
 """,
     input_variables=["question", "context"],
 )
@@ -127,7 +139,21 @@ Reflect deeply on the current state of research:
 4. What specific aspect should we focus on next?
 5. How should we adjust our search to find the missing information?
 
-If we need to reformulate our search query, provide a "Reformulated query: [new query]" on a separate line.
+If you need more information, output exactly:
+Need-more-search: yes
+
+Otherwise output exactly:
+Need-more-search: no
+
+If another search is needed, also provide one line:
+New-query: <max-5-keywords, lowercase, no punctuation>
+
+Examples
+Need-more-search: no
+Need-more-search: yes
+New-query: clip architecture vit
+
+Do not output anything else on those lines.
 """,
     input_variables=["question", "plan", "context", "current_focus", "reflections"],
 )
@@ -166,16 +192,28 @@ def plan_node(state: ResearchState) -> dict:
     
     logger.info(f"PLAN: Created plan with {len(plan.split())} words")
     
-    # Initialize current_query with the original question
+    # Make the first query automatically terse (max 4 tokens, no question mark)
+    first_query = " ".join(state.question.lower().replace("?", "").split()[:4])
+    logger.info(f"PLAN: Initial terse query: {first_query}")
+    
+    # Add to previous queries list
+    state.previous_queries.append(first_query)
+    
     return {
         "plan": plan,
-        "current_query": state.question
+        "current_query": first_query
     }
 
 # ── node: search (enhanced version of retrieve) -----------------------------
 def search_node(state: ResearchState) -> dict:
     """Search for relevant documents using the current query."""
     query = state.current_query or state.question
+    
+    # Guard against pointless reformulations
+    if query in state.previous_queries[:-1]:  # Skip the last one which we just added
+        logger.info(f"SEARCH: Duplicate query detected – skipping search: {query[:50]}")
+        return {}
+    
     logger.info(f"SEARCH: Searching with query: {query[:50]}...")
     
     bm25_ids = _extract_ids(bm25_search(query, k=5))
@@ -213,7 +251,7 @@ def read_node(state: ResearchState) -> dict:
     
     if not state.context:
         logger.info("READ: No content available to analyze")
-        return {"current_focus": "No content available to analyze."}
+        return {"current_focus": "No content available to analyze.", "coverage": "low"}
     
     # Use only the most recent context items for analysis
     recent_context = state.context[-3:] if len(state.context) > 3 else state.context
@@ -225,8 +263,13 @@ def read_node(state: ResearchState) -> dict:
     )
     analysis = LLM.invoke(llm_input).content.strip()
     
+    # Extract coverage information
+    cov = TAG_COVERAGE.search(analysis)
+    coverage = cov.group(1).lower() if cov else "partial"
+    logger.info(f"READ: Content coverage assessment: {coverage}")
+    
     logger.info(f"READ: Analysis complete with {len(analysis.split())} words")
-    return {"current_focus": analysis}
+    return {"current_focus": analysis, "coverage": coverage}
 
 # ── node: reflect -----------------------------------------------------------
 def reflect_node(state: ResearchState) -> dict:
@@ -250,20 +293,26 @@ def reflect_node(state: ResearchState) -> dict:
     reflection = LLM.invoke(llm_input).content.strip()
     MEM.add_reflection(reflection)
     
-    # Extract reformulated query if present
-    new_query = state.question  # Default to original question
-    if "reformulated query:" in reflection.lower():
-        # Extract the reformulated query from the reflection
-        query_parts = reflection.lower().split("reformulated query:")
-        if len(query_parts) > 1:
-            new_query = query_parts[1].strip().split("\n")[0].strip()
-            MEM.add_query(new_query, "implicit_reformulation")
+    # Extract need-more-search flag
+    need = TAG_NEED_MORE.search(reflection)
+    need_more = (need.group(1).lower() == "yes") if need else True
+    logger.info(f"REFLECT: Need more search: {need_more}")
+    
+    # Extract new query if present
+    new_query = state.current_query  # Default to current query
+    nq = TAG_NEWQUERY.search(reflection)
+    if nq:
+        new_query = nq.group(1).strip()
+        if new_query not in state.previous_queries:
+            state.previous_queries.append(new_query)
+            MEM.add_query(new_query, "explicit_reformulation")
             logger.info(f"REFLECT: Query reformulated to: {new_query[:50]}...")
     
     logger.info(f"REFLECT: Added reflection with {len(reflection.split())} words")
     return {
         "reflections": state.reflections + [reflection],
         "current_query": new_query,
+        "need_more": need_more,
         "iterations": state.iterations + 1  # Increment iteration counter
     }
 
@@ -357,29 +406,13 @@ def should_navigate(state: ResearchState) -> bool:
 
 def has_sufficient_info(state: ResearchState) -> bool:
     """Determine if we have sufficient information to answer."""
-    # Force completion after 8 iterations to avoid infinite loops
-    if state.iterations >= 8:
-        logger.info("Forcing completion after 8 iterations")
-        return True
-        
-    if not state.reflections:
-        return False
+    # Use the LLM's own assessment
+    sufficient = (state.coverage == "high") or (not state.need_more)
     
-    last_reflection = state.reflections[-1].lower()
-    sufficient_indicators = [
-        "sufficient information",
-        "can answer",
-        "enough context",
-        "ready to synthesize",
-        "adequate information",
-        "can now answer"
-    ]
+    if sufficient:
+        logger.info(f"Sufficient information detected: coverage={state.coverage}, need_more={state.need_more}")
     
-    has_sufficient = any(indicator in last_reflection for indicator in sufficient_indicators)
-    if has_sufficient:
-        logger.info("Sufficient information detected in reflection")
-    
-    return has_sufficient
+    return sufficient
 
 def needs_more_search(state: ResearchState) -> bool:
     """Determine if more searching is needed."""
@@ -421,10 +454,15 @@ def build_graph():
     graph.add_edge("search_node", "read_node")
     graph.add_edge("read_node", "reflect_node")
     
-    # Create a simple linear flow to avoid recursion issues
-    # After 8 iterations, has_sufficient_info will return True and go to synthesize
-    graph.add_edge("reflect_node", "synthesize_node", has_sufficient_info)
-    graph.add_edge("reflect_node", "search_node")
+    # Simplified conditional edges based on LLM's own assessment
+    graph.add_conditional_edges(
+        "reflect_node",
+        lambda s: has_sufficient_info(s),
+        {
+            True: "synthesize_node",
+            False: "search_node"
+        }
+    )
     
     # Set finish point
     graph.set_finish_point("synthesize_node")
