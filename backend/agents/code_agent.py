@@ -42,6 +42,7 @@ try:
     from backend.tools import local_browser
     from backend.tools import walk_local
     from backend.tools import list_folder
+    from backend.tools import research_tools  # Import the new research tools
     from backend.tools import restricted_exec # Import separately if needed
     ALL_TOOL_MODULES_IMPORTED = True
 except ImportError as e:
@@ -86,6 +87,7 @@ if not ALL_TOOL_MODULES_IMPORTED:
 # Raw callables map for restricted_exec
 RAW_TOOLS: Dict[str, Callable] = MappingProxyType(
     {
+        # Basic search and navigation tools
         "bm25_search":   bm25.bm25_search,
         "vector_search": vector.vector_search,
         "hybrid_search": hybrid.hybrid_search,
@@ -93,6 +95,14 @@ RAW_TOOLS: Dict[str, Callable] = MappingProxyType(
         "text_browser":  local_browser.text_browser,
         "walk_local":    walk_local.walk_local,
         "list_folder":   list_folder.list_folder,
+        
+        # Advanced research tools
+        "plan_research": research_tools.plan_research,
+        "hybrid_search_with_content": research_tools.hybrid_search_with_content,
+        "analyze_content": research_tools.analyze_content,
+        "reflect_on_research": research_tools.reflect_on_research,
+        "navigate_document_graph": research_tools.navigate_document_graph,
+        "synthesize_answer": research_tools.synthesize_answer,
     }
 )
 
@@ -109,18 +119,56 @@ def _auto_annotate(fn: Callable) -> Callable:
     fn.__annotations__ = ann
     return fn
 
+# Create a list of all tools with proper annotations
 AGENT_TOOLS = [
     tool_decorator(_auto_annotate(func))   # decorator → Tool instance
     for func in RAW_TOOLS.values()
 ]
 
+# Ensure the research tools are properly included
+# This is a safety check in case the tool decorator wasn't applied in the research_tools.py file
+research_tool_names = [
+    "plan_research",
+    "hybrid_search_with_content",
+    "analyze_content",
+    "reflect_on_research",
+    "navigate_document_graph",
+    "synthesize_answer"
+]
+
+# Verify all research tools are included
+for tool_name in research_tool_names:
+    if tool_name not in RAW_TOOLS:
+        logging.warning(f"Research tool {tool_name} not found in RAW_TOOLS")
+
 # ---------------------------------------------------------------------------
-# Prompt template (Keep as is)
+# Prompt template with enhanced research instructions
 # ---------------------------------------------------------------------------
+RESEARCH_SYSTEM_PROMPT = """
+You are an expert research assistant for a private document corpus.
+
+Follow this research loop:
+1. PLAN: Create a research plan for answering the user's question using plan_research
+2. SEARCH: Use hybrid_search_with_content to find relevant documents
+3. READ: Analyze retrieved content using analyze_content to extract key information
+4. REFLECT: Reflect on current knowledge using reflect_on_research and identify gaps
+5. NAVIGATE: Use navigate_document_graph to explore related content when appropriate
+6. SYNTHESIZE: Combine all gathered information into a comprehensive answer using synthesize_answer
+
+During the REFLECT step, you should:
+- Assess what you've learned so far
+- Identify what information is still missing
+- Determine the next research step
+- If needed, reformulate your search query to better target missing information
+
+Track your progress and reasoning throughout the research process.
+When you have sufficient information, provide a final answer with citations.
+"""
+
 PROMPTS = PromptTemplates(
     system_prompt=CONFIG.get(
         "agent.system_prompt",
-        "You are an expert research assistant for a private corpus.",
+        RESEARCH_SYSTEM_PROMPT,
     )
 )
 
