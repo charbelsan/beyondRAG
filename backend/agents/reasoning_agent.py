@@ -298,11 +298,17 @@ def reflect_node(state: ResearchState) -> dict:
     # Extract need-more-search flag
     need = TAG_NEED_MORE.search(reflection)
     need_more = (need.group(1).lower() == "yes") if need else True
-    logger.info(f"REFLECT: Need more search: {need_more}")
     
-    # Log the actual match for debugging
-    if need:
-        logger.info(f"REFLECT: Need-more-search match: '{need.group(0)}' -> '{need.group(1)}'")
+    # Force stop after 5 iterations regardless of LLM's assessment
+    if state.iterations >= 5:
+        need_more = False
+        logger.info(f"REFLECT: Forcing stop after {state.iterations} iterations")
+    else:
+        logger.info(f"REFLECT: Need more search: {need_more}")
+        
+        # Log the actual match for debugging
+        if need:
+            logger.info(f"REFLECT: Need-more-search match: '{need.group(0)}' -> '{need.group(1)}'")
     
     # Extract new query if present
     new_query = state.current_query  # Default to current query
