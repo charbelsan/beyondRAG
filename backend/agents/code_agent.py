@@ -156,33 +156,25 @@ for tool_name in basic_tools:
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
 
-# Add research tools - these are already decorated with @tool
-# We need to import them directly rather than trying to re-decorate them
-from backend.tools.research_tools import (
-    plan_research,
-    hybrid_search_with_content,
-    analyze_content,
-    reflect_on_research,
-    navigate_document_graph,
-    synthesize_answer
-)
-
-# Add the research tools directly
-research_tools_list = [
-    plan_research,
-    hybrid_search_with_content,
-    analyze_content,
-    reflect_on_research,
-    navigate_document_graph,
-    synthesize_answer
+# Add research tools directly from RAW_TOOLS
+research_tools = [
+    "plan_research",
+    "hybrid_search_with_content",
+    "analyze_content",
+    "reflect_on_research",
+    "navigate_document_graph",
+    "synthesize_answer"
 ]
 
-for func in research_tools_list:
-    try:
-        AGENT_TOOLS.append(_auto_annotate(func))
-        logging.info(f"Added research tool: {func.__name__}")
-    except Exception as e:
-        logging.error(f"Error adding research tool {getattr(func, '__name__', 'unknown')}: {e}")
+for tool_name in research_tools:
+    if tool_name in RAW_TOOLS:
+        func = RAW_TOOLS[tool_name]
+        try:
+            # Use the function directly without re-decorating it
+            AGENT_TOOLS.append(_auto_annotate(func))
+            logging.info(f"Added research tool: {tool_name}")
+        except Exception as e:
+            logging.error(f"Error adding research tool {tool_name}: {e}")
 
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
@@ -229,6 +221,10 @@ PROMPTS = PromptTemplates(
     planning="""
     Create a plan to answer the user's question using the available tools.
     Break down the task into steps and explain your approach.
+    """,
+    initial_plan="""
+    Let's create a plan to answer this question effectively.
+    I'll use the available research tools to gather information and provide a comprehensive answer.
     """
 )
 
