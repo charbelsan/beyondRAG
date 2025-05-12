@@ -447,7 +447,8 @@ def build_graph():
     # Set finish point
     graph.set_finish_point("synthesize_node")
     
-    return graph.compile()
+    # Compile with a higher recursion limit
+    return graph.compile(recursion_limit=10)
 
 # ── build the graph once at module load time -------------------------------
 compiled_graph = build_graph()
