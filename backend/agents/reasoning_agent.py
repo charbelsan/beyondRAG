@@ -300,6 +300,10 @@ def reflect_node(state: ResearchState) -> dict:
     need_more = (need.group(1).lower() == "yes") if need else True
     logger.info(f"REFLECT: Need more search: {need_more}")
     
+    # Log the actual match for debugging
+    if need:
+        logger.info(f"REFLECT: Need-more-search match: '{need.group(0)}' -> '{need.group(1)}'")
+    
     # Extract new query if present
     new_query = state.current_query  # Default to current query
     nq = TAG_NEWQUERY.search(reflection)
