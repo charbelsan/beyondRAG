@@ -34,6 +34,15 @@ from backend.agents.shared.publish import publish
 from backend.agents.shared.reformulate import reformulate
 from backend.config import CONFIG
 
+# Add tracking for research stages
+class ResearchStage:
+    PLAN = "PLAN"
+    SEARCH = "SEARCH"
+    READ = "READ"
+    REFLECT = "REFLECT"
+    NAVIGATE = "NAVIGATE"
+    SYNTHESIZE = "SYNTHESIZE"
+
 # ---------------------------------------------------------------------------
 # Explicitly import each tool module
 # Let Python fully load each one before we try to access their contents.
@@ -146,11 +155,27 @@ for tool_name in basic_tools:
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
 
+# Add research tools
+research_tools = [
+    "plan_research",
+    "hybrid_search_with_content",
+    "analyze_content",
+    "reflect_on_research",
+    "navigate_document_graph",
+    "synthesize_answer"
+]
+
+for tool_name in research_tools:
+    if tool_name in RAW_TOOLS:
+        func = RAW_TOOLS[tool_name]
+        try:
+            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
+            logging.info(f"Added research tool: {tool_name}")
+        except Exception as e:
+            logging.error(f"Error adding research tool {tool_name}: {e}")
+
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
-
-# Note: The research tools from research_tools.py are already decorated with @tool
-# and will be imported and used directly by the agent when needed
 
 # ---------------------------------------------------------------------------
 # Prompt template with enhanced research instructions
@@ -158,22 +183,23 @@ logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
 RESEARCH_SYSTEM_PROMPT = """
 You are an expert research assistant for a private document corpus.
 
-Follow this research loop:
-1. PLAN: Create a research plan for answering the user's question using plan_research
+Follow this research loop EXACTLY in order:
+1. PLAN: First, create a research plan using plan_research
 2. SEARCH: Use hybrid_search_with_content to find relevant documents
-3. READ: Analyze retrieved content using analyze_content to extract key information
-4. REFLECT: Reflect on current knowledge using reflect_on_research and identify gaps
-5. NAVIGATE: Use navigate_document_graph to explore related content when appropriate
-6. SYNTHESIZE: Combine all gathered information into a comprehensive answer using synthesize_answer
+3. READ: Analyze retrieved content using analyze_content
+4. REFLECT: Use reflect_on_research to assess what you've learned and what's missing
+5. If reflect_on_research indicates sufficient_info is False, go back to SEARCH with the reformulated query
+6. SYNTHESIZE: When sufficient_info is True, use synthesize_answer to create the final answer
 
-During the REFLECT step, you should:
-- Assess what you've learned so far
-- Identify what information is still missing
-- Determine the next research step
-- If needed, reformulate your search query to better target missing information
+IMPORTANT RULES:
+1. Always track your progress through these steps explicitly.
+2. For each step, state which step you're on and what you're doing.
+3. Stop after 5 iterations to prevent infinite loops.
+4. Always check the return values of tools for errors.
+5. When using hybrid_search_with_content, check if new_docs_found is 0 and try a different query if so.
+6. When using reflect_on_research, always check the sufficient_info flag to decide whether to continue searching.
 
-Track your progress and reasoning throughout the research process.
-When you have sufficient information, provide a final answer with citations.
+Your final answer should be comprehensive, well-structured, and include citations to the sources you used.
 """
 
 PROMPTS = PromptTemplates(
@@ -189,10 +215,10 @@ PROMPTS = PromptTemplates(
 AG = CodeAgent(
     model=LLM,
     tools=AGENT_TOOLS,
-    #prompt_templates=PROMPTS,
+    prompt_templates=PROMPTS,
     add_base_tools=False,
     max_steps=CONFIG.get("limits.max_steps", 40),
-    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime"]),
+    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re"]),
 )
 
 # ---------------------------------------------------------------------------
@@ -213,6 +239,21 @@ def answer(q: str) -> str:
     
     MEM.reset()
     MEM.add_query(reformulated_q)
+    
+    # Add tracking for research stages
+    if not hasattr(MEM, 'stages'):
+        MEM.stages = []
+    
+    # Add method to track stages if it doesn't exist
+    if not hasattr(MEM, 'add_stage'):
+        def add_stage(stage, content):
+            MEM.stages.append((stage, content))
+            logger.info(f"Research stage: {stage} - {content[:50]}...")
+        MEM.add_stage = add_stage
+    
+    # Initialize stages
+    MEM.stages = []
+    MEM.add_stage(ResearchStage.PLAN, "Starting research process")
     
     # Log available tools
     logger.info(f"Available tools: {', '.join(RAW_TOOLS.keys())}")
@@ -238,6 +279,12 @@ def answer(q: str) -> str:
         
         logger.info(f"Agent completed with {len(MEM.snips)} snippets and {len(MEM.reflections)} reflections")
         
+        # Log research stages
+        if hasattr(MEM, 'stages') and MEM.stages:
+            logger.info(f"Research stages: {len(MEM.stages)}")
+            for i, (stage, content) in enumerate(MEM.stages):
+                logger.info(f"Stage {i+1}: {stage}")
+        
     except Exception as agent_err:
         logger.error(f"Agent run failed: {agent_err}", exc_info=True)
         # Consider returning a more user-friendly error or re-raising
@@ -256,7 +303,16 @@ def answer(q: str) -> str:
     # Append memory summary if needed
     if MEM.reflections or len(MEM.queries) > 1:
         logger.info(f"Adding memory summary with {len(MEM.reflections)} reflections and {len(MEM.queries)} queries")
-        final_answer_text += "\n\n" + MEM.summary()
+        summary = MEM.summary()
+        
+        # Add research stages to summary if available
+        if hasattr(MEM, 'stages') and MEM.stages:
+            stages_summary = "\n\n## Research Process\n"
+            for i, (stage, _) in enumerate(MEM.stages):
+                stages_summary += f"{i+1}. {stage}\n"
+            summary += stages_summary
+            
+        final_answer_text += "\n\n" + summary
 
     # Append sources (MEM should have been populated during AG.run's internal tool calls)
     # Ensure publish function handles potential errors gracefully

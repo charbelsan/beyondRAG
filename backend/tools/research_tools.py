@@ -66,6 +66,10 @@ def plan_research(question: str) -> str:
     >>> plan_research("What is the CLIP architecture?")
     "1. Identify key components of CLIP\n2. Understand how image and text encoders work\n3. ..."
     """
+    # Track planning stage if MEM has the attribute
+    if hasattr(MEM, 'add_stage'):
+        MEM.add_stage("PLAN", f"Creating research plan for: {question}")
+    
     prompt = PromptTemplate(
         template="""
         You are tasked with creating a research plan to answer the following question:
@@ -82,9 +86,32 @@ def plan_research(question: str) -> str:
         input_variables=["question"],
     )
     
-    llm_input = prompt.format(question=question)
-    plan = LLM.invoke(llm_input).content.strip()
-    return plan
+    try:
+        llm_input = prompt.format(question=question)
+        plan = LLM.invoke(llm_input).content.strip()
+        
+        # Track plan completion if MEM has the attribute
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("PLAN", "Research plan created")
+            
+        return plan
+    except Exception as e:
+        # Handle errors gracefully
+        error_msg = f"Error creating research plan: {str(e)}"
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("PLAN", f"Error: {error_msg}")
+        
+        # Return a basic plan as fallback
+        return f"""
+        Error creating detailed plan: {error_msg}
+        
+        Basic research plan:
+        1. Search for basic information about {question}
+        2. Analyze the information found
+        3. Identify any gaps in knowledge
+        4. Search for more specific information
+        5. Synthesize findings into a comprehensive answer
+        """
 
 @tool
 def hybrid_search_with_content(query: str, k: int = 5, visited_docs: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -103,37 +130,57 @@ def hybrid_search_with_content(query: str, k: int = 5, visited_docs: Optional[Li
     >>> hybrid_search_with_content("CLIP architecture", k=3)
     {"doc_ids": ["doc_123", "doc_456"], "snippets": ["CLIP uses a...", "The architecture consists of..."], "new_docs_found": 2}
     """
-    # Perform searches
-    bm25_ids = _extract_ids(bm25_search(query, k=k))
-    vector_ids = _extract_ids(vector_search(query, k=k))
-    top_ids = list(dict.fromkeys(bm25_ids + vector_ids))[:k]
+    # Track search stage if MEM has the attribute
+    if hasattr(MEM, 'add_stage'):
+        MEM.add_stage("SEARCH", f"Searching for: {query}")
     
-    # Filter out already visited documents if provided
-    if visited_docs:
-        new_ids = [did for did in top_ids if did not in visited_docs]
-    else:
-        new_ids = top_ids
-    
-    # Get content for each document
-    snippets = []
-    retrieved_ids = []
-    meta_path = CONFIG.get_path("indexing.meta")
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    
-    for did in new_ids:
-        txt = read_span(did, mode="auto", chars=750)
-        if not txt:  # fallback to stored raw_text
-            txt = meta.get(did, {}).get("raw_text", "")
-        if txt:
-            snippets.append(txt)
-            retrieved_ids.append(did)
-            MEM.track(txt, did, mode="auto")
-    
-    return {
-        "doc_ids": retrieved_ids,
-        "snippets": snippets,
-        "new_docs_found": len(snippets)
-    }
+    try:
+        # Perform searches
+        bm25_ids = _extract_ids(bm25_search(query, k=k))
+        vector_ids = _extract_ids(vector_search(query, k=k))
+        top_ids = list(dict.fromkeys(bm25_ids + vector_ids))[:k]
+        
+        # Filter out already visited documents if provided
+        if visited_docs:
+            new_ids = [did for did in top_ids if did not in visited_docs]
+        else:
+            new_ids = top_ids
+        
+        # Get content for each document
+        snippets = []
+        retrieved_ids = []
+        meta_path = CONFIG.get_path("indexing.meta")
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        
+        for did in new_ids:
+            txt = read_span(did, mode="auto", chars=750)
+            if not txt:  # fallback to stored raw_text
+                txt = meta.get(did, {}).get("raw_text", "")
+            if txt:
+                snippets.append(txt)
+                retrieved_ids.append(did)
+                MEM.track(txt, did, mode="auto")
+        
+        # Track results if MEM has the attribute
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("SEARCH", f"Found {len(snippets)} documents")
+        
+        return {
+            "doc_ids": retrieved_ids,
+            "snippets": snippets,
+            "new_docs_found": len(snippets)
+        }
+    except Exception as e:
+        # Handle errors gracefully
+        error_msg = f"Error during search: {str(e)}"
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("SEARCH", f"Error: {error_msg}")
+        return {
+            "doc_ids": [],
+            "snippets": [f"Search error: {error_msg}. Please try a different query."],
+            "new_docs_found": 0,
+            "error": error_msg
+        }
 
 @tool
 def analyze_content(question: str, content: List[str]) -> str:
@@ -151,7 +198,13 @@ def analyze_content(question: str, content: List[str]) -> str:
     >>> analyze_content("What is CLIP?", ["CLIP (Contrastive Language-Image Pre-training) is a neural network..."])
     "The content explains that CLIP is a neural network that..."
     """
+    # Track reading stage if MEM has the attribute
+    if hasattr(MEM, 'add_stage'):
+        MEM.add_stage("READ", f"Analyzing {len(content)} content items")
+    
     if not content:
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("READ", "No content provided for analysis")
         return "No content provided for analysis."
     
     prompt = PromptTemplate(
@@ -169,17 +222,45 @@ def analyze_content(question: str, content: List[str]) -> str:
         4. What is the significance of this information?
         
         Provide a structured analysis that captures the essence of this content.
+        
+        Finally, on one line only, state:
+        Coverage: high (if the content fully answers the question)
+        Coverage: partial (if the content partially answers the question)
+        Coverage: low (if the content is not relevant to the question)
         """,
         input_variables=["question", "content"],
     )
     
-    content_text = "\n\n".join(content)
-    llm_input = prompt.format(question=question, content=content_text)
-    analysis = LLM.invoke(llm_input).content.strip()
-    return analysis
+    try:
+        content_text = "\n\n".join(content)
+        llm_input = prompt.format(question=question, content=content_text)
+        analysis = LLM.invoke(llm_input).content.strip()
+        
+        # Extract coverage information if possible
+        coverage = "unknown"
+        if "coverage: high" in analysis.lower():
+            coverage = "high"
+        elif "coverage: partial" in analysis.lower():
+            coverage = "partial"
+        elif "coverage: low" in analysis.lower():
+            coverage = "low"
+            
+        # Track analysis completion with coverage if MEM has the attribute
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("READ", f"Analysis complete with coverage: {coverage}")
+            
+        return analysis
+    except Exception as e:
+        # Handle errors gracefully
+        error_msg = f"Error analyzing content: {str(e)}"
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("READ", f"Error: {error_msg}")
+        
+        # Return basic analysis as fallback
+        return f"Error during detailed analysis: {error_msg}\n\nBasic summary: The content contains information related to {question}."
 
 @tool
-def reflect_on_research(question: str, findings: str, plan: Optional[str] = None) -> Dict[str, Any]:
+def reflect_on_research(question: str, findings: str, plan: Optional[str] = None, iteration: int = 0) -> Dict[str, Any]:
     """
     Reflect on the current research state and identify gaps.
     
@@ -187,15 +268,23 @@ def reflect_on_research(question: str, findings: str, plan: Optional[str] = None
         question: The original question
         findings: Current research findings and analysis
         plan: Optional research plan
+        iteration: Current iteration count (to prevent infinite loops)
         
     Returns:
         Dictionary with reflection and potentially reformulated query
     
     Example:
     >>> reflect_on_research("How does CLIP work?", "CLIP consists of two encoders...", "1. Understand encoders...")
-    {"reflection": "We've learned about the encoders but still need to understand training...", 
+    {"reflection": "We've learned about the encoders but still need to understand training...",
      "reformulated_query": "CLIP training process", "sufficient_info": False}
     """
+    # Force stop after 5 iterations to prevent infinite loops
+    if iteration >= 5:
+        return {
+            "reflection": "Forcing stop after 5 iterations. Synthesizing with current information.",
+            "reformulated_query": question,
+            "sufficient_info": True
+        }
     prompt = PromptTemplate(
         template="""
         Question: {question}
@@ -225,24 +314,39 @@ def reflect_on_research(question: str, findings: str, plan: Optional[str] = None
         plan=plan or "No explicit plan."
     )
     
-    reflection = LLM.invoke(llm_input).content.strip()
-    MEM.add_reflection(reflection)
-    
-    # Extract reformulated query if present
-    reformulated_query = None
-    if "reformulated query:" in reflection.lower():
-        query_parts = reflection.lower().split("reformulated query:")
-        if len(query_parts) > 1:
-            reformulated_query = query_parts[1].strip().split("\n")[0].strip()
-            MEM.add_query(reformulated_query, "implicit_reformulation")
-    
-    # Determine if we have sufficient information
-    sufficient_info = False
-    if "sufficient information:" in reflection.lower():
-        info_parts = reflection.lower().split("sufficient information:")
-        if len(info_parts) > 1:
-            sufficient_text = info_parts[1].strip().split("\n")[0].strip()
-            sufficient_info = sufficient_text.startswith("yes")
+    try:
+        reflection = LLM.invoke(llm_input).content.strip()
+        MEM.add_reflection(reflection)
+        
+        # Extract reformulated query if present
+        reformulated_query = None
+        if "reformulated query:" in reflection.lower():
+            query_parts = reflection.lower().split("reformulated query:")
+            if len(query_parts) > 1:
+                reformulated_query = query_parts[1].strip().split("\n")[0].strip()
+                MEM.add_query(reformulated_query, "explicit_reformulation")
+        
+        # Determine if we have sufficient information
+        sufficient_info = False
+        if "sufficient information:" in reflection.lower():
+            info_parts = reflection.lower().split("sufficient information:")
+            if len(info_parts) > 1:
+                sufficient_text = info_parts[1].strip().split("\n")[0].strip()
+                sufficient_info = sufficient_text.startswith("yes")
+                
+        # Add coverage assessment if MEM has the attribute
+        if hasattr(MEM, 'add_stage'):
+            if sufficient_info:
+                MEM.add_stage("REFLECT", "Sufficient information found")
+            else:
+                MEM.add_stage("REFLECT", f"Need more information, reformulated query: {reformulated_query or question}")
+    except Exception as e:
+        # Handle errors gracefully
+        return {
+            "reflection": f"Error during reflection: {str(e)}. Continuing with available information.",
+            "reformulated_query": question,
+            "sufficient_info": True  # Force completion on error
+        }
     
     return {
         "reflection": reflection,
@@ -266,7 +370,13 @@ def navigate_document_graph(doc_id: str, visited_docs: Optional[List[str]] = Non
     >>> navigate_document_graph("doc_123", ["doc_123"])
     {"related_docs": ["doc_456"], "snippets": ["Related content..."], "relations": ["next_page"]}
     """
+    # Track navigation stage if MEM has the attribute
+    if hasattr(MEM, 'add_stage'):
+        MEM.add_stage("NAVIGATE", f"Navigating from document: {doc_id}")
+    
     if not doc_id:
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("NAVIGATE", "Error: No document ID provided")
         return {"error": "No document ID provided."}
     
     # Initialize visited docs if not provided
@@ -276,12 +386,16 @@ def navigate_document_graph(doc_id: str, visited_docs: Optional[List[str]] = Non
     # Load the graph
     graph_path = CONFIG.get_path("indexing.graph")
     if not graph_path.exists():
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("NAVIGATE", "Error: Document graph not found")
         return {"error": "Document graph not found."}
     
     try:
         G = read_gpickle(graph_path)
         
         if doc_id not in G:
+            if hasattr(MEM, 'add_stage'):
+                MEM.add_stage("NAVIGATE", f"Error: Document {doc_id} not found in graph")
             return {"error": f"Document {doc_id} not found in graph."}
         
         # Find related documents
@@ -296,6 +410,8 @@ def navigate_document_graph(doc_id: str, visited_docs: Optional[List[str]] = Non
                 relation_types.append(relation_type)
         
         if not related_docs:
+            if hasattr(MEM, 'add_stage'):
+                MEM.add_stage("NAVIGATE", "No unvisited related documents found")
             return {"error": "No unvisited related documents found."}
         
         # Get content from related documents
@@ -313,6 +429,10 @@ def navigate_document_graph(doc_id: str, visited_docs: Optional[List[str]] = Non
                 snippets.append(snippet_with_relation)
                 MEM.track(txt, did, mode="auto")
         
+        # Track navigation results if MEM has the attribute
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("NAVIGATE", f"Found {len(snippets)} related documents")
+        
         return {
             "related_docs": related_docs[:len(snippets)],
             "snippets": snippets,
@@ -320,7 +440,10 @@ def navigate_document_graph(doc_id: str, visited_docs: Optional[List[str]] = Non
         }
     
     except Exception as e:
-        return {"error": f"Error navigating document graph: {str(e)}"}
+        error_msg = f"Error navigating document graph: {str(e)}"
+        if hasattr(MEM, 'add_stage'):
+            MEM.add_stage("NAVIGATE", f"Error: {error_msg}")
+        return {"error": error_msg}
 
 @tool
 def synthesize_answer(question: str, findings: str, reflections: Optional[str] = None) -> str:
@@ -339,6 +462,9 @@ def synthesize_answer(question: str, findings: str, reflections: Optional[str] =
     >>> synthesize_answer("How does CLIP work?", "CLIP consists of two encoders...", "We found detailed information...")
     "CLIP (Contrastive Language-Image Pre-training) works by using two encoders..."
     """
+    # Track synthesis stage if MEM has the attribute
+    if hasattr(MEM, 'add_stage'):
+        MEM.add_stage("SYNTHESIZE", "Creating final answer")
     prompt = PromptTemplate(
         template="""
         Question: {question}
@@ -367,5 +493,9 @@ def synthesize_answer(question: str, findings: str, reflections: Optional[str] =
         reflections=reflections or "No explicit reflections."
     )
     
-    answer = LLM.invoke(llm_input).content.strip()
-    return answer
+    try:
+        answer = LLM.invoke(llm_input).content.strip()
+        return answer
+    except Exception as e:
+        # Handle errors gracefully
+        return f"Error during synthesis: {str(e)}. Based on the research, I can provide this partial answer: {findings[:500]}..."
