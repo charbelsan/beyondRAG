@@ -372,83 +372,30 @@ def build_graph():
     graph.add_node("search_node", search_node)
     graph.add_node("read_node", read_node)
     graph.add_node("reflect_node", reflect_node)
-    graph.add_node("navigate_node", navigate_node)
     graph.add_node("synthesize_node", synthesize_node)
     
     # Set entry point
     graph.set_entry_point("plan_node")
     
-    # Add basic edges
+    # Add basic edges - simplified to avoid recursion issues
     graph.add_edge("plan_node", "search_node")
     graph.add_edge("search_node", "read_node")
     graph.add_edge("read_node", "reflect_node")
     
-    # Add a counter to the state to prevent infinite loops
-    def increment_iteration_counter(state: ResearchState) -> dict:
-        """Increment the iteration counter to prevent infinite loops."""
-        return {"iterations": state.iterations + 1}
-    
-    graph.add_node("increment_counter", increment_iteration_counter)
-    
-    # Add a node to check if we've reached the maximum iterations
-    def check_iterations(state: ResearchState) -> bool:
-        """Check if we've reached the maximum number of iterations."""
-        return state.iterations >= 10  # Maximum 10 iterations
-    
-    # Add conditional edges from reflect to check iterations
+    # Add conditional edges from reflect directly to synthesize
     graph.add_conditional_edges(
         "reflect_node",
-        check_iterations,  # First check if we've reached max iterations
-        {
-            True: "synthesize_node",  # If max iterations reached, go to synthesize
-            False: "navigation_check_node"  # Otherwise, check if we should navigate
-        }
-    )
-    
-    # Add a node to check if we should navigate
-    def navigation_check(state: ResearchState) -> dict:
-        """Check if we should navigate to related documents."""
-        return {}
-        
-    graph.add_node("navigation_check_node", navigation_check)
-    
-    # Add conditional edges from navigation check
-    graph.add_conditional_edges(
-        "navigation_check_node",
-        should_navigate,
-        {
-            True: "navigate_node",
-            False: "reflect_decision_node"
-        }
-    )
-    
-    # Add a decision node for determining next steps after reflection
-    def reflect_decision(state: ResearchState) -> dict:
-        """Determine next steps after reflection."""
-        return {}
-        
-    graph.add_node("reflect_decision_node", reflect_decision)
-    
-    # Add conditional edges from reflect_decision
-    graph.add_conditional_edges(
-        "reflect_decision_node",
         has_sufficient_info,
         {
             True: "synthesize_node",
-            False: "increment_counter"  # Go to counter before searching again
+            False: "search_node"  # Go back to search if not enough info
         }
     )
-    
-    # Add edge from counter to search
-    graph.add_edge("increment_counter", "search_node")
-    
-    graph.add_edge("navigate_node", "read_node")
     
     # Set finish point
     graph.set_finish_point("synthesize_node")
     
-    # Compile with a higher recursion limit
-    return graph.compile(recursion_limit=10)
+    return graph.compile()
 
 # ── build the graph once at module load time -------------------------------
 compiled_graph = build_graph()
