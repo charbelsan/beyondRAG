@@ -286,7 +286,8 @@ PROMPTS = PromptTemplates(
 AG = CodeAgent(
     model=LLM,
     tools=AGENT_TOOLS,
-    prompt_templates=PROMPTS,
+    # Use default prompt templates instead of custom ones
+    # prompt_templates=PROMPTS,
     add_base_tools=False,
     max_steps=CONFIG.get("limits.max_steps_code_agent", 15),
     additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing"]),
