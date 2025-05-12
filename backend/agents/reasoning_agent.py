@@ -412,11 +412,14 @@ def should_navigate(state: ResearchState) -> bool:
 
 def has_sufficient_info(state: ResearchState) -> bool:
     """Determine if we have sufficient information to answer."""
-    # Use the LLM's own assessment
-    sufficient = (state.coverage == "high") or (not state.need_more)
+    # Prioritize the need_more flag over the coverage assessment
+    # Only consider the research sufficient if the LLM explicitly says it doesn't need more search
+    sufficient = not state.need_more
     
     if sufficient:
-        logger.info(f"Sufficient information detected: coverage={state.coverage}, need_more={state.need_more}")
+        logger.info(f"Sufficient information detected: LLM indicated no more search needed")
+    elif state.coverage == "high":
+        logger.info(f"High coverage detected but LLM still wants more search")
     
     return sufficient
 
