@@ -154,8 +154,8 @@ for tool_name in basic_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            # Use the function directly without re-decorating it
-            AGENT_TOOLS.append(_auto_annotate(func))
+            # Use the tool_decorator to create a proper Tool instance
+            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
             logging.info(f"Added basic tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
@@ -174,8 +174,8 @@ for tool_name in research_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            # Use the function directly without re-decorating it
-            AGENT_TOOLS.append(_auto_annotate(func))
+            # Use the tool_decorator to create a proper Tool instance
+            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
             logging.info(f"Added research tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding research tool {tool_name}: {e}")
