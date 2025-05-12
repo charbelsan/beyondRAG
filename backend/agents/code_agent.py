@@ -116,6 +116,10 @@ RAW_TOOLS: Dict[str, Callable] = MappingProxyType(
         "reflect_on_research": research_tools.reflect_on_research,
         "navigate_document_graph": research_tools.navigate_document_graph,
         "synthesize_answer": research_tools.synthesize_answer,
+        
+        # Aliases to prevent hallucinated tool calls from crashing
+        "search": hybrid.hybrid_search,          # alias
+        "wiki": hybrid.hybrid_search,            # crude but avoids crash
     }
 )
 
@@ -182,40 +186,88 @@ logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
 # ---------------------------------------------------------------------------
 # Prompt template with enhanced research instructions
 # ---------------------------------------------------------------------------
-RESEARCH_SYSTEM_PROMPT = """
-You are an expert research assistant for a private document corpus.
+CODE_SYSTEM_PROMPT = """
+You are Code‑Nav‑Agent, a Python‑capable assistant operating **inside a
+restricted exec sandbox**. Always follow this protocol:
 
-Follow this research loop EXACTLY in order:
-1. PLAN: First, create a research plan using plan_research
-2. SEARCH: Use hybrid_search_with_content to find relevant documents
-3. READ: Analyze retrieved content using analyze_content
-4. REFLECT: Use reflect_on_research to assess what you've learned and what's missing
-5. If reflect_on_research indicates sufficient_info is False, go back to SEARCH with the reformulated query
-6. SYNTHESIZE: When sufficient_info is True, use synthesize_answer to create the final answer
+Thoughts:
+- A short plain‑English reasoning about the next action. *One line.*
 
-IMPORTANT RULES:
-1. Always track your progress through these steps explicitly.
-2. For each step, state which step you're on and what you're doing.
-3. Stop after 5 iterations to prevent infinite loops.
-4. Always check the return values of tools for errors.
-5. When using hybrid_search_with_content, check if new_docs_found is 0 and try a different query if so.
-6. When using reflect_on_research, always check the sufficient_info flag to decide whether to continue searching.
+Code:
+```py
+# REQUIRED. Valid Python 3.10.
+# Use ONLY the tools listed below (they are already imported):
+#   bm25_search, vector_search, hybrid_search, read_span,
+#   text_browser, walk_local, list_folder,
+#   plan_research, hybrid_search_with_content, analyze_content,
+#   reflect_on_research, navigate_document_graph, synthesize_answer
+# Every tool call must be inside this code block.
+# End the block with <end_code>
+```<end_code>
 
-Your final answer should be comprehensive, well-structured, and include citations to the sources you used.
+Allowed imports: json, re, datetime, typing.
+
+When your answer is complete:
+Thoughts: FINISHED
+Code:
+```py
+return "FINAL_ANSWER: <your_string_here>"
+```<end_code>
+"""
+
+# Few-shot examples to lock the format
+FEW_SHOT_EXAMPLES = """
+User: What is the CLIP architecture?
+
+Thoughts: I'll create a research plan first to understand CLIP architecture.
+
+Code:
+```py
+plan = plan_research("What is the CLIP architecture?")
+print(f"Research plan: {plan}")
+```<end_code>
+
+Execution logs:
+Research plan: 1. Understand the basic concept of CLIP
+2. Identify the key components of CLIP architecture
+3. Explore how the image encoder works
+4. Explore how the text encoder works
+5. Understand how these components interact
+6. Examine the training methodology
+7. Identify the unique features of CLIP compared to other models
+
+Thoughts: Now I'll search for relevant documents about CLIP.
+
+Code:
+```py
+search_results = hybrid_search_with_content("CLIP architecture components", k=3)
+print(f"Found {search_results['new_docs_found']} documents")
+```<end_code>
+
+Execution logs:
+Found 3 documents
+
+Thoughts: FINISHED
+
+Code:
+```py
+return "FINAL_ANSWER: CLIP (Contrastive Language-Image Pre-training) is a neural network architecture that connects text and images. It consists of two main components: a vision encoder (based on a Vision Transformer or ResNet) and a text encoder (based on a Transformer). These encoders project images and text into a shared embedding space where related content is positioned closely together. CLIP is trained using contrastive learning on a large dataset of image-text pairs, allowing it to perform zero-shot classification and other cross-modal tasks."
+```<end_code>
 """
 
 PROMPTS = PromptTemplates(
     system_prompt=CONFIG.get(
         "agent.system_prompt",
-        RESEARCH_SYSTEM_PROMPT,
+        CODE_SYSTEM_PROMPT + FEW_SHOT_EXAMPLES,
     ),
     managed_agent="""
-    You are a research assistant with access to tools for searching and analyzing documents.
-    Follow the research loop: PLAN → SEARCH → READ → REFLECT → SYNTHESIZE.
+    You are Code-Nav-Agent, a Python-capable assistant operating inside a restricted exec sandbox.
+    Always follow the protocol with Thoughts and Code blocks.
     Use the available tools to find information and answer the user's question.
     """,
     final_answer="""
-    Based on your research, provide a comprehensive answer to the user's question.
+    When your answer is complete, return it with:
+    return "FINAL_ANSWER: <your comprehensive answer here>"
     Include citations to the sources you used.
     """,
     planning="""
@@ -236,9 +288,12 @@ AG = CodeAgent(
     tools=AGENT_TOOLS,
     prompt_templates=PROMPTS,
     add_base_tools=False,
-    max_steps=CONFIG.get("limits.max_steps", 40),
-    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re"]),
+    max_steps=CONFIG.get("limits.max_steps_code_agent", 15),
+    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing"]),
 )
+
+# Add short-circuit parameters
+AG.max_fails = 4  # after 4 parser errors, abort
 
 # ---------------------------------------------------------------------------
 # Public function the rest of the pipeline imports (Keep as is)
@@ -277,6 +332,9 @@ def answer(q: str) -> str:
     # Log available tools
     logger.info(f"Available tools: {', '.join(RAW_TOOLS.keys())}")
     logger.info(f"Agent configured with {len(AGENT_TOOLS)} tools")
+    
+    # Add safe globals for restricted_exec
+    safe_globals = {"__builtins__": {}}
 
     # --- Run Agent ---
     try:
@@ -341,6 +399,10 @@ def answer(q: str) -> str:
     except Exception as pub_err:
         logger.error(f"Publishing sources failed: {pub_err}", exc_info=True)
         sources_text = "Error generating sources."
+
+    # Add a reminder about citations if they're not already included
+    if "Sources" not in final_answer_text and len(MEM.snips) > 0:
+        final_answer_text += "\n\nRemember to include citations to your sources in your answer."
 
     return final_answer_text + "\n\n### Sources\n" + sources_text
 
