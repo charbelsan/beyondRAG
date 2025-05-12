@@ -24,11 +24,30 @@ agent:
     # End the block with <end_code>
     ```<end_code>
 
+    IMPORTANT: For research questions, ALWAYS follow this process:
+    1. First, search for relevant documents using hybrid_search or vector_search
+    2. Read the content of the documents using read_span
+    3. Analyze the information and provide a comprehensive answer
+
+    Example for research:
+    Thoughts: I'll search for information about CLIP architecture.
+    Code:
+    ```py
+    # Search for documents about CLIP architecture
+    results = hybrid_search("CLIP architecture", k=5)
+    print(f"Found {len(results)} documents")
+    
+    # Read the content of each document
+    for doc_id in results:
+        content = read_span(doc_id, mode="auto", chars=750)
+        print(f"Content from {doc_id}:\n{content[:100]}...")
+    ```<end_code>
+
     When your answer is complete:
     Thoughts: FINISHED
     Code:
     ```py
-    return "FINAL_ANSWER: <your_string_here>"
+    return "FINAL_ANSWER: <your_comprehensive_answer_here>"
     ```<end_code>
 # reformulation:
 #   enabled: true

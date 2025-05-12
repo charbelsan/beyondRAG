@@ -150,12 +150,24 @@ basic_tools = [
     "list_folder"
 ]
 
+# Import the tools directly to avoid the SimpleTool error
+from smolagents import Tool
+
+# Create a list of all tools with proper annotations
+AGENT_TOOLS = []
+
+# First add the basic tools that we know work
 for tool_name in basic_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            # Use the tool_decorator to create a proper Tool instance
-            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
+            # Create a Tool instance directly
+            tool = Tool(
+                name=tool_name,
+                description=func.__doc__ or f"Execute {tool_name}",
+                function=_auto_annotate(func)
+            )
+            AGENT_TOOLS.append(tool)
             logging.info(f"Added basic tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
@@ -174,8 +186,13 @@ for tool_name in research_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            # Use the tool_decorator to create a proper Tool instance
-            AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
+            # Create a Tool instance directly
+            tool = Tool(
+                name=tool_name,
+                description=func.__doc__ or f"Execute {tool_name}",
+                function=_auto_annotate(func)
+            )
+            AGENT_TOOLS.append(tool)
             logging.info(f"Added research tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding research tool {tool_name}: {e}")
@@ -290,7 +307,7 @@ AG = CodeAgent(
     # prompt_templates=PROMPTS,
     add_base_tools=False,
     max_steps=CONFIG.get("limits.max_steps_code_agent", 15),
-    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing"]),
+    additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing", "numpy", "math"]),
 )
 
 # Add short-circuit parameters
