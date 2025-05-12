@@ -4,10 +4,10 @@ llm:
   base_url: http://localhost:11434/v1
   api: None
 agent:
-  mode: reasoning                    # code | reasoning | multi
+  mode: code                    # code | reasoning | multi
   system_prompt: |
     You are an expert research assistant for a private corpus.
-    Loop: PLAN → SEARCH → READ → REFLECT → (optional) REFORMULATE → SYNTHESIZE.
+    Use the available tools to search, read, and analyze documents to answer questions.
 # reformulation:
 #   enabled: true
 #   model: mistral
