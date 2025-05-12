@@ -121,19 +121,32 @@ def _auto_annotate(fn: Callable) -> Callable:
 
 # Create a list of all tools with proper annotations
 AGENT_TOOLS = []
-for func_name, func in RAW_TOOLS.items():
-    try:
-        # Check if the function is already a tool
-        if hasattr(func, '_smolagents_tool'):
-            AGENT_TOOLS.append(func)
-        else:
-            # Apply tool decorator to regular functions
+
+# First add the basic tools that we know work
+basic_tools = [
+    "bm25_search",
+    "vector_search",
+    "hybrid_search",
+    "read_span",
+    "text_browser",
+    "walk_local",
+    "list_folder"
+]
+
+for tool_name in basic_tools:
+    if tool_name in RAW_TOOLS:
+        func = RAW_TOOLS[tool_name]
+        try:
             AGENT_TOOLS.append(tool_decorator(_auto_annotate(func)))
-    except Exception as e:
-        logging.error(f"Error adding tool {func_name}: {e}")
+            logging.info(f"Added basic tool: {tool_name}")
+        except Exception as e:
+            logging.error(f"Error adding basic tool {tool_name}: {e}")
 
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
+
+# Note: The research tools from research_tools.py are already decorated with @tool
+# and will be imported and used directly by the agent when needed
 
 # ---------------------------------------------------------------------------
 # Prompt template with enhanced research instructions

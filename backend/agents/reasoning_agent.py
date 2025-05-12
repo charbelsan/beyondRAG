@@ -366,29 +366,29 @@ def build_graph():
     """Build and return the enhanced research graph."""
     graph = StateGraph(state_schema=ResearchState)
     
-    # Add nodes
-    graph.add_node("plan", plan_node)
-    graph.add_node("search", search_node)
-    graph.add_node("read", read_node)
-    graph.add_node("reflect", reflect_node)
-    graph.add_node("navigate", navigate_node)
-    graph.add_node("synthesize", synthesize_node)
+    # Add nodes - use different names to avoid conflicts with state keys
+    graph.add_node("plan_node", plan_node)
+    graph.add_node("search_node", search_node)
+    graph.add_node("read_node", read_node)
+    graph.add_node("reflect_node", reflect_node)
+    graph.add_node("navigate_node", navigate_node)
+    graph.add_node("synthesize_node", synthesize_node)
     
     # Set entry point
-    graph.set_entry_point("plan")
+    graph.set_entry_point("plan_node")
     
     # Add basic edges
-    graph.add_edge("plan", "search")
-    graph.add_edge("search", "read")
-    graph.add_edge("read", "reflect")
+    graph.add_edge("plan_node", "search_node")
+    graph.add_edge("search_node", "read_node")
+    graph.add_edge("read_node", "reflect_node")
     
     # Add conditional edges from reflect
     graph.add_conditional_edges(
-        "reflect",
+        "reflect_node",
         should_navigate,
         {
-            True: "navigate",
-            False: "reflect_decision"
+            True: "navigate_node",
+            False: "reflect_decision_node"
         }
     )
     
@@ -397,22 +397,22 @@ def build_graph():
         """Determine next steps after reflection."""
         return {}
         
-    graph.add_node("reflect_decision", reflect_decision)
+    graph.add_node("reflect_decision_node", reflect_decision)
     
     # Add conditional edges from reflect_decision
     graph.add_conditional_edges(
-        "reflect_decision",
+        "reflect_decision_node",
         has_sufficient_info,
         {
-            True: "synthesize",
-            False: "search"  # Default back to search if no clear path
+            True: "synthesize_node",
+            False: "search_node"  # Default back to search if no clear path
         }
     )
     
-    graph.add_edge("navigate", "read")
+    graph.add_edge("navigate_node", "read_node")
     
     # Set finish point
-    graph.set_finish_point("synthesize")
+    graph.set_finish_point("synthesize_node")
     
     return graph.compile()
 
