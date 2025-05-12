@@ -112,7 +112,9 @@ Extract and organize the key information from this content:
 Provide a structured analysis that captures the essence of this content.
 
 Finally, on one line only, state:
-Coverage: {high / partial / low}
+Coverage: high (if the content fully answers the question)
+Coverage: partial (if the content partially answers the question)
+Coverage: low (if the content is not relevant to the question)
 """,
     input_variables=["question", "context"],
 )
