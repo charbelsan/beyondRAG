@@ -4,10 +4,16 @@ llm:
   base_url: http://localhost:11434/v1
   api: None
 agent:
-  mode: reasoning                    # code | reasoning | multi
+  mode: code                    # code | reasoning | multi
   system_prompt: |
     You are an expert research assistant for a private corpus.
-    Loop: PLAN → SEARCH → READ → REFLECT → (optional) REFORMULATE → SYNTHESIZE.
+    Follow this research loop EXACTLY in order:
+    1. PLAN: First, create a research plan using plan_research
+    2. SEARCH: Use hybrid_search_with_content to find relevant documents
+    3. READ: Analyze retrieved content using analyze_content
+    4. REFLECT: Use reflect_on_research to assess what you've learned and what's missing
+    5. If reflect_on_research indicates sufficient_info is False, go back to SEARCH with the reformulated query
+    6. SYNTHESIZE: When sufficient_info is True, use synthesize_answer to create the final answer
 # reformulation:
 #   enabled: true
 #   model: mistral
