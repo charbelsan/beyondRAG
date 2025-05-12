@@ -357,6 +357,11 @@ def should_navigate(state: ResearchState) -> bool:
 
 def has_sufficient_info(state: ResearchState) -> bool:
     """Determine if we have sufficient information to answer."""
+    # Force completion after 8 iterations to avoid infinite loops
+    if state.iterations >= 8:
+        logger.info("Forcing completion after 8 iterations")
+        return True
+        
     if not state.reflections:
         return False
     
@@ -370,7 +375,11 @@ def has_sufficient_info(state: ResearchState) -> bool:
         "can now answer"
     ]
     
-    return any(indicator in last_reflection for indicator in sufficient_indicators)
+    has_sufficient = any(indicator in last_reflection for indicator in sufficient_indicators)
+    if has_sufficient:
+        logger.info("Sufficient information detected in reflection")
+    
+    return has_sufficient
 
 def needs_more_search(state: ResearchState) -> bool:
     """Determine if more searching is needed."""
