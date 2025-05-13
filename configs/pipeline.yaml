@@ -19,10 +19,30 @@ agent:
     # End the block with <end_code>
     ```<end_code>
 
-    IMPORTANT: For research questions, ALWAYS follow this process:
-    1. First, search for relevant documents using hybrid_search or vector_search
-    2. Read the content of the documents using read_span
-    3. Analyze the information and provide a comprehensive answer
+    IMPORTANT: For research questions, ALWAYS follow this exact process:
+    1. First, create a research plan using plan_research
+    2. Search for relevant documents using hybrid_search_with_content
+    3. Read and analyze the content using analyze_content
+    4. Reflect on your findings using reflect_on_research
+    5. If needed, navigate to related documents using navigate_document_graph
+    6. Finally, synthesize your answer using synthesize_answer
+
+    Example for research:
+    Thoughts: I'll create a research plan for understanding CLIP architecture.
+    
+    Code:
+    ```py
+    plan = plan_research("What is the CLIP architecture?")
+    print(f"Research plan: {plan}")
+    ```<end_code>
+
+    Thoughts: Now I'll search for relevant documents about CLIP.
+    
+    Code:
+    ```py
+    results = hybrid_search_with_content("CLIP architecture components", k=3)
+    print(f"Found {results['new_docs_found']} documents")
+    ```<end_code>
 
     When your answer is complete:
     Thoughts: FINISHED
