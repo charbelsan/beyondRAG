@@ -256,38 +256,12 @@ return "FINAL_ANSWER: CLIP (Contrastive Language-Image Pre-training) is a neural
 ```<end_code>
 """
 
-PROMPTS = PromptTemplates(
-    system_prompt=CONFIG.get(
-        "agent.system_prompt",
-        CODE_SYSTEM_PROMPT + FEW_SHOT_EXAMPLES,
-    ),
-    managed_agent="""
-    You are Code-Nav-Agent, a Python-capable assistant operating inside a restricted exec sandbox.
-    Always follow the protocol with Thoughts and Code blocks.
-    Use the available tools to find information and answer the user's question.
-    """,
-    final_answer="""
-    When your answer is complete, return it with:
-    return "FINAL_ANSWER: <your comprehensive answer here>"
-    Include citations to the sources you used.
-    """,
-    planning="""
-    Create a plan to answer the user's question using the available tools.
-    Break down the task into steps and explain your approach.
-    """,
-    initial_plan="""
-    Let's create a plan to answer this question effectively.
-    I'll use the available research tools to gather information and provide a comprehensive answer.
-    """
-)
-
-# ---------------------------------------------------------------------------
-# Build the CodeAgent (Keep as is)
-# ---------------------------------------------------------------------------
+# Create the CodeAgent with default prompt templates
 AG = CodeAgent(
     model=LLM,
     tools=AGENT_TOOLS,
-    prompt_templates=PROMPTS,
+    # Don't use custom prompt templates, use the defaults
+    # prompt_templates=PROMPTS,
     add_base_tools=False,
     max_steps=CONFIG.get("limits.max_steps_code_agent", 15),
     additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing", "numpy", "math"]),
