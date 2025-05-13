@@ -23,8 +23,7 @@ logger = logging.getLogger("code_agent")
 
 from smolagents import CodeAgent, OpenAIServerModel, PromptTemplates
 from smolagents import tool as tool_decorator 
-  
-
+from smolagents import Tool
 
 # ---------------------------------------------------------------------------
 # Config and Shared Imports First
@@ -83,20 +82,6 @@ LLM = OpenAIServerModel(
 if not ALL_TOOL_MODULES_IMPORTED:
     raise RuntimeError("Tool module imports failed, cannot define tools.")
 
-# Agent Tools - List the decorated functions directly using the imported modules
-# (Assumes @tool decorator is applied in bm25.py, vector.py, etc.)
-# AGENT_TOOLS: List[Callable] = [
-#     bm25.bm25_search,
-#     vector.vector_search,
-#     hybrid.hybrid_search,
-#     read_span.read_span,
-#     local_browser.text_browser, # Ensure this function exists and is decorated
-#     walk_local.walk_local,
-#     list_folder.list_folder,
-# ]
-
-
-
 # Raw callables map for restricted_exec
 RAW_TOOLS: Dict[str, Callable] = MappingProxyType(
     {
@@ -150,52 +135,44 @@ basic_tools = [
     "list_folder"
 ]
 
-# Import the tools directly to avoid the SimpleTool error
-from smolagents import Tool
-
-# Create a list of all tools with proper annotations
-AGENT_TOOLS = []
-
-# First add the basic tools that we know work
 for tool_name in basic_tools:
     if tool_name in RAW_TOOLS:
         func = RAW_TOOLS[tool_name]
         try:
-            # Create a Tool instance directly
-            tool = Tool(
-                name=tool_name,
-                description=func.__doc__ or f"Execute {tool_name}",
-                function=_auto_annotate(func)
-            )
-            AGENT_TOOLS.append(tool)
+            # Use the tool_decorator to create a proper Tool instance
+            decorated_func = tool_decorator(_auto_annotate(func))
+            AGENT_TOOLS.append(decorated_func)
             logging.info(f"Added basic tool: {tool_name}")
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
 
-# Add research tools directly from RAW_TOOLS
-research_tools = [
-    "plan_research",
-    "hybrid_search_with_content",
-    "analyze_content",
-    "reflect_on_research",
-    "navigate_document_graph",
-    "synthesize_answer"
+# Import research tools directly
+from backend.tools.research_tools import (
+    plan_research,
+    hybrid_search_with_content,
+    analyze_content,
+    reflect_on_research,
+    navigate_document_graph,
+    synthesize_answer
+)
+
+# Add research tools directly - they're already decorated with @tool
+research_tools_list = [
+    plan_research,
+    hybrid_search_with_content,
+    analyze_content,
+    reflect_on_research,
+    navigate_document_graph,
+    synthesize_answer
 ]
 
-for tool_name in research_tools:
-    if tool_name in RAW_TOOLS:
-        func = RAW_TOOLS[tool_name]
-        try:
-            # Create a Tool instance directly
-            tool = Tool(
-                name=tool_name,
-                description=func.__doc__ or f"Execute {tool_name}",
-                function=_auto_annotate(func)
-            )
-            AGENT_TOOLS.append(tool)
-            logging.info(f"Added research tool: {tool_name}")
-        except Exception as e:
-            logging.error(f"Error adding research tool {tool_name}: {e}")
+for func in research_tools_list:
+    try:
+        # Add the tool directly since it's already a Tool instance
+        AGENT_TOOLS.append(func)
+        logging.info(f"Added research tool: {func.__name__}")
+    except Exception as e:
+        logging.error(f"Error adding research tool {getattr(func, '__name__', 'unknown')}: {e}")
 
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
@@ -222,7 +199,7 @@ Code:
 # End the block with <end_code>
 ```<end_code>
 
-Allowed imports: json, re, datetime, typing.
+Allowed imports: json, re, datetime, typing, numpy, math.
 
 When your answer is complete:
 Thoughts: FINISHED
@@ -257,12 +234,19 @@ Thoughts: Now I'll search for relevant documents about CLIP.
 
 Code:
 ```py
-search_results = hybrid_search_with_content("CLIP architecture components", k=3)
-print(f"Found {search_results['new_docs_found']} documents")
+search_results = hybrid_search("CLIP architecture", k=5)
+print(f"Found {len(search_results)} documents")
+
+# Read the content of each document
+for doc_id in search_results:
+    content = read_span(doc_id, mode="auto", chars=750)
+    print(f"Content from {doc_id}:\n{content[:100]}...")
 ```<end_code>
 
 Execution logs:
-Found 3 documents
+Found 5 documents
+Content from doc1: [clip.pdf p5 • 750c] Learning Transferable Visual Models From Natural Language Supervision...
+Content from doc2: [clip.pdf p10 • 750c] The CLIP architecture consists of two main components: a vision encoder and a text encoder...
 
 Thoughts: FINISHED
 
@@ -303,8 +287,7 @@ PROMPTS = PromptTemplates(
 AG = CodeAgent(
     model=LLM,
     tools=AGENT_TOOLS,
-    # Use default prompt templates instead of custom ones
-    # prompt_templates=PROMPTS,
+    prompt_templates=PROMPTS,
     add_base_tools=False,
     max_steps=CONFIG.get("limits.max_steps_code_agent", 15),
     additional_authorized_imports=CONFIG.get("llm.authorized_imports", ["datetime", "re", "json", "typing", "numpy", "math"]),
@@ -423,4 +406,3 @@ def answer(q: str) -> str:
         final_answer_text += "\n\nRemember to include citations to your sources in your answer."
 
     return final_answer_text + "\n\n### Sources\n" + sources_text
-

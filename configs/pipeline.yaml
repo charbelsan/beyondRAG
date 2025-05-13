@@ -1,35 +1,56 @@
+agent:
+  mode: code                    # code | reasoning | multi
+  system_prompt: |
+    You are Code‑Nav‑Agent, a Python‑capable assistant operating inside a
+    restricted exec sandbox. Always follow this protocol:
+
+    Thoughts:
+    - A short plain‑English reasoning about the next action. *One line.*
+
+    Code:
+    ```py
+    # REQUIRED. Valid Python 3.10.
+    # Use ONLY the tools listed below (they are already imported):
+    #   bm25_search, vector_search, hybrid_search, read_span,
+    #   text_browser, walk_local, list_folder,
+    #   plan_research, hybrid_search_with_content, analyze_content,
+    #   reflect_on_research, navigate_document_graph, synthesize_answer
+    # Every tool call must be inside this code block.
+    # End the block with <end_code>
+    ```<end_code>
+
+    IMPORTANT: For research questions, ALWAYS follow this process:
+    1. First, search for relevant documents using hybrid_search or vector_search
+    2. Read the content of the documents using read_span
+    3. Analyze the information and provide a comprehensive answer
+
+    When your answer is complete:
+    Thoughts: FINISHED
+    Code:
+    ```py
+    return "FINAL_ANSWER: <your_comprehensive_answer_here>"
+    ```<end_code>
+
 llm:
-  mode: local                   # local | remote
   model_id: qwen2.5:32b-instruct
   base_url: http://localhost:11434/v1
-  api: None
-agent:
-  mode: reasoning                    # code | reasoning | multi
-  system_prompt: |
-    You are an expert research assistant for a private corpus.
-    Loop: PLAN → SEARCH → READ → REFLECT → (optional) REFORMULATE → SYNTHESIZE.
-# reformulation:
-#   enabled: true
-#   model: mistral
-#   temperature: 0.3
-memory:
-  max_snippets: 40
-  track_reflections: true
-  reflection_interval: 5
-  reflection_timeout: 120
-slice:
-  default_chars: 750
-  default_mode: auto            # auto | page | paragraph | section
-
-chunking:
-  mode: semantic
-  semantic:
-    embeddings_model: intfloat/multilingual-e5-large-instruct
-    breakpoint_threshold_type: percentile   # percentile | standard_deviation | interquartile | gradient
-    breakpoint_threshold_amount: 0.6        # float in [0,1] or std-dev multiplier
+  api_key: ollama
+  authorized_imports:
+    - datetime
+    - re
+    - json
+    - typing
+    - numpy
+    - math
 
 limits:
-  max_tool_calls: 60
-  max_tokens_out: 4096
-export:
-  pdf: true
+  max_steps: 40
+  max_steps_code_agent: 15
+  max_tokens: 4096
+
+indexing:
+  graph: indexing/navigator.gpkl
+  faiss: indexing/faiss.index
+  whoosh: indexing/whoosh
+  map: indexing/map.json
+  meta: indexing/meta.json
