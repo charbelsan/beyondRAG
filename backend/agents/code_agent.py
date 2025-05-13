@@ -146,33 +146,26 @@ for tool_name in basic_tools:
         except Exception as e:
             logging.error(f"Error adding basic tool {tool_name}: {e}")
 
-# Import research tools directly
-from backend.tools.research_tools import (
-    plan_research,
-    hybrid_search_with_content,
-    analyze_content,
-    reflect_on_research,
-    navigate_document_graph,
-    synthesize_answer
-)
-
-# Add research tools directly - they're already decorated with @tool
+# Add research tools directly from RAW_TOOLS
 research_tools_list = [
-    plan_research,
-    hybrid_search_with_content,
-    analyze_content,
-    reflect_on_research,
-    navigate_document_graph,
-    synthesize_answer
+    "plan_research",
+    "hybrid_search_with_content",
+    "analyze_content",
+    "reflect_on_research",
+    "navigate_document_graph",
+    "synthesize_answer"
 ]
 
-for func in research_tools_list:
-    try:
-        # Add the tool directly since it's already a Tool instance
-        AGENT_TOOLS.append(func)
-        logging.info(f"Added research tool: {func.__name__}")
-    except Exception as e:
-        logging.error(f"Error adding research tool {getattr(func, '__name__', 'unknown')}: {e}")
+for tool_name in research_tools_list:
+    if tool_name in RAW_TOOLS:
+        func = RAW_TOOLS[tool_name]
+        try:
+            # Create a Tool instance directly
+            decorated_func = tool_decorator(_auto_annotate(func))
+            AGENT_TOOLS.append(decorated_func)
+            logging.info(f"Added research tool: {tool_name}")
+        except Exception as e:
+            logging.error(f"Error adding research tool {tool_name}: {e}")
 
 # Log the tools that were successfully added
 logging.info(f"Added {len(AGENT_TOOLS)} tools to the agent")
